@@ -140,7 +140,7 @@ class BaseAgent(ABC):
 
             # Call Claude
             response = self.client.messages.create(
-                model="claude-3-5-sonnet-20241022",
+                model="global.anthropic.claude-opus-4-5-20251101-v1:0",
                 max_tokens=4096,
                 system=self.system_prompt,
                 tools=self._build_tools_for_claude() if self.tools else None,

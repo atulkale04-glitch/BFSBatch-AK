@@ -46,7 +46,7 @@ class ApplicationOrchestrator:
 
             # Execute workflow
             logger.info("Invoking workflow graph")
-            result = self.app.invoke(state)
+            result = await self.app.ainvoke(state)
 
             logger.info(f"Application processing completed: {application_id}")
             logger.info(f"Final decision: {result.get('final_decision')}")
@@ -57,6 +57,7 @@ class ApplicationOrchestrator:
                 "application_id": result.get("application_id"),
                 "case_id": result.get("case_id"),
                 "status": result.get("status"),
+                "error_message": result.get("error_message"),
                 "decision": result.get("final_decision"),
                 "risk_score": result.get("risk_score"),
                 "confidence_level": result.get("confidence_level"),

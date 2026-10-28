@@ -15,8 +15,8 @@ This document provides a comprehensive, step-by-step implementation plan for bui
   ```bash
   cd /home/ubuntu/Desktop/Loan\ Approval\ System
   git init
-  git config user.name "Your Name"
-  git config user.email "your.email@example.com"
+  git config user.name "atulkale04-glitch"
+  git config user.email "atulkale04@gmail.com"
   ```
 
 - [ ] Create project root directories:

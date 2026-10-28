@@ -14,7 +14,7 @@ from src.models.schemas import (
     LoanDecisionResponse,
 )
 from src.models.database import LoanApplication, DecisionRecord, AuditLog
-from src.database.connection import get_db_session
+from src.database.connection import get_db
 from src.orchestration.orchestrator import ApplicationOrchestrator
 from src.utils.logger import get_logger
 
@@ -36,7 +36,7 @@ class InstantDecisionResponse(ApplicationSubmissionResponse):
 
 @router.post("/applications", response_model=InstantDecisionResponse)
 async def submit_application(
-    request: LoanApplicationRequest, db: Session = Depends(get_db_session)
+    request: LoanApplicationRequest, db: Session = Depends(get_db)
 ):
     """
     Submit a new loan application for INSTANT processing.
@@ -123,7 +123,7 @@ async def submit_application(
 
 @router.get("/applications/{application_id}")
 async def get_application_status(
-    application_id: str, db: Session = Depends(get_db_session)
+    application_id: str, db: Session = Depends(get_db)
 ):
     """
     Get application status by ID.
@@ -165,7 +165,7 @@ async def get_application_status(
 
 @router.get("/applications/{application_id}/decision", response_model=LoanDecisionResponse)
 async def get_application_decision(
-    application_id: str, db: Session = Depends(get_db_session)
+    application_id: str, db: Session = Depends(get_db)
 ):
     """
     Get loan decision for an application.
@@ -209,7 +209,7 @@ async def get_application_decision(
 
 @router.get("/applications/{application_id}/audit-trail")
 async def get_audit_trail(
-    application_id: str, db: Session = Depends(get_db_session)
+    application_id: str, db: Session = Depends(get_db)
 ):
     """
     Get audit trail for an application.

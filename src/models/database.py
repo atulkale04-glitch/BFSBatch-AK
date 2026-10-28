@@ -30,6 +30,7 @@ class LoanApplication(Base):
     loan_tenure_months = Column(Integer, nullable=False)
     existing_liabilities = Column(Float, nullable=False)
     location = Column(String, nullable=False)
+    applicant_email = Column(String, nullable=True)
 
     # Timestamps
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)

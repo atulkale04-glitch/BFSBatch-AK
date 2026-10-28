@@ -7,7 +7,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from src.api.routes_v2 import router as api_router
+from src.api.routes import router as api_router
 from src.database.connection import init_db
 from src.utils.logger import setup_logging
 
@@ -73,7 +73,7 @@ async def readiness_check():
 
 
 # Include API routes
-app.include_router(api_router, prefix="/api/v1")
+app.include_router(api_router)
 
 
 # Global exception handler

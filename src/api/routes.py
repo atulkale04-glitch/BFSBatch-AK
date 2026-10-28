@@ -1,211 +1,251 @@
-"""FastAPI routes for loan approval system."""
+"""FastAPI routes for loan approval application with orchestrator integration."""
 
-import logging
+import asyncio
+import uuid
 from datetime import datetime
+from typing import Dict, List, Optional
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Depends
+from sqlalchemy.orm import Session
 
-from src.models.schemas import ApplicationStatusResponse, ApplicationSubmissionResponse, LoanApplicationRequest
-from src.utils.constants import (
-    STATUS_PENDING,
-    STATUS_PROCESSING,
-    generate_application_id,
+from src.models.schemas import (
+    LoanApplicationRequest,
+    ApplicationSubmissionResponse,
+    LoanDecisionResponse,
 )
-from src.utils.validators import validate_application_data
+from src.models.database import LoanApplication, DecisionRecord, AuditLog
+from src.database.connection import get_db
+from src.orchestration.orchestrator import ApplicationOrchestrator
+from src.utils.logger import get_logger
 
-router = APIRouter(prefix="/applications", tags=["Loan Applications"])
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
+router = APIRouter(prefix="/api/v1", tags=["applications"])
 
-# In-memory storage for this phase (will be replaced with database in later phases)
-applications_store = {}
+orchestrator = ApplicationOrchestrator()
 
 
-@router.post(
-    "",
-    response_model=ApplicationSubmissionResponse,
-    status_code=status.HTTP_201_CREATED,
-    summary="Submit Loan Application",
-    description="Submit a new loan application for processing",
-)
-async def submit_application(application: LoanApplicationRequest) -> ApplicationSubmissionResponse:
+class InstantDecisionResponse(ApplicationSubmissionResponse):
+    """Response with instant decision data."""
+    decision: Optional[str] = None
+    risk_score: Optional[float] = None
+    confidence_level: Optional[float] = None
+    case_id: Optional[str] = None
+    key_factors: List[str] = []
+    reasoning: Optional[str] = None
+
+
+@router.post("/applications", response_model=InstantDecisionResponse)
+async def submit_application(
+    request: LoanApplicationRequest, db: Session = Depends(get_db)
+):
     """
-    Submit a new loan application.
+    Submit a new loan application for INSTANT processing.
 
-    **Request Body:**
-    - applicant_id: Unique applicant identifier
-    - age: Applicant age (18-100)
-    - income: Annual income
-    - employment_type: Type of employment
-    - credit_score: Credit score (300-850)
-    - loan_amount: Requested loan amount
-    - loan_tenure_months: Loan duration in months
-    - existing_liabilities: Total existing liabilities
-    - location: Applicant location
+    Args:
+        request: Loan application data
+        db: Database session
 
-    **Returns:**
-    - application_id: Unique identifier for tracking
-    - status: Current processing status
-    - created_at: Application submission timestamp
+    Returns:
+        InstantDecisionResponse with immediate decision
     """
+    logger.info(f"Received application submission from {request.applicant_id}")
+
     try:
-        # Validate input data
-        is_valid, errors = validate_application_data(application)
-        if not is_valid:
-            logger.warning(f"Application validation failed: {errors}")
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail={"message": "Application validation failed", "errors": errors},
-            )
+        application_data = request.dict()
+        application_id = f"LOAN-{datetime.utcnow().strftime('%Y%m%d')}-{str(uuid.uuid4())[:8].upper()}"
 
-        # Generate application ID
-        application_id = generate_application_id()
+        application_record = LoanApplication(
+            id=application_id,
+            applicant_id=request.applicant_id,
+            age=request.age,
+            income=request.income,
+            employment_type=request.employment_type,
+            credit_score=request.credit_score,
+            loan_amount=request.loan_amount,
+            loan_tenure_months=request.loan_tenure_months,
+            existing_liabilities=request.existing_liabilities,
+            location=request.location,
+            applicant_email=request.applicant_email,
+            status="processing",
+        )
+        db.add(application_record)
+        db.commit()
+        db.refresh(application_record)
 
-        # Store application data
-        applications_store[application_id] = {
-            "id": application_id,
-            "applicant_id": application.applicant_id,
-            "status": STATUS_PROCESSING,
-            "data": application.model_dump(),
-            "created_at": datetime.utcnow(),
-            "updated_at": datetime.utcnow(),
-        }
+        logger.info(f"Processing application {application_id} synchronously...")
 
-        logger.info(f"Application submitted: {application_id} for applicant: {application.applicant_id}")
+        result = await orchestrator.process_application(application_data)
 
-        return ApplicationSubmissionResponse(
-            application_id=application_id,
-            status=STATUS_PROCESSING,
-            created_at=datetime.utcnow(),
+        if result.get("success"):
+            application_record.status = result.get("status", "completed")
+            application_record.decision = result.get("decision")
+            application_record.risk_score = result.get("risk_score")
+            application_record.confidence_level = result.get("confidence_level")
+            db.commit()
+
+            if result.get("status") == "completed":
+                decision_record = DecisionRecord(
+                    application_id=application_record.application_id,
+                    final_decision=result.get("decision"),
+                    risk_score=result.get("risk_score"),
+                    confidence_level=result.get("confidence_level"),
+                    key_factors=",".join(result.get("key_factors", [])),
+                    reasoning=result.get("reasoning"),
+                    case_id=result.get("case_id"),
+                )
+                db.add(decision_record)
+                db.commit()
+
+                logger.info(f"Decision completed for {application_id}: {result.get('decision')}")
+
+                return InstantDecisionResponse(
+                    application_id=application_record.application_id,
+                    status=application_record.status,
+                    message=f"✅ Loan Decision: {result.get('decision')}",
+                    decision=result.get("decision"),
+                    risk_score=result.get("risk_score"),
+                    confidence_level=result.get("confidence_level"),
+                    case_id=result.get("case_id"),
+                    key_factors=result.get("key_factors", []),
+                    reasoning=result.get("reasoning"),
+                )
+
+        return InstantDecisionResponse(
+            application_id=application_record.application_id,
+            status=application_record.status,
+            message=f"Application {application_record.application_id} submitted",
         )
 
-    except HTTPException:
-        raise
     except Exception as e:
         logger.error(f"Error submitting application: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to submit application",
-        )
+        raise HTTPException(status_code=400, detail=str(e))
 
 
-@router.get(
-    "/{application_id}",
-    response_model=ApplicationStatusResponse,
-    summary="Get Application Status",
-    description="Retrieve the current status of a loan application",
-)
-async def get_application_status(application_id: str) -> ApplicationStatusResponse:
+@router.get("/applications/{application_id}")
+async def get_application_status(
+    application_id: str, db: Session = Depends(get_db)
+):
     """
-    Get the current status of a loan application.
+    Get application status by ID.
 
-    **Parameters:**
-    - application_id: The application ID to look up
+    Args:
+        application_id: Application ID
+        db: Database session
 
-    **Returns:**
-    - application_id: Application identifier
-    - status: Current status (pending/processing/completed/failed)
-    - created_at: Creation timestamp
-    - updated_at: Last update timestamp
-    - decision: Final decision (if completed)
+    Returns:
+        Application record with current status
     """
+    logger.info(f"Fetching application status: {application_id}")
+
     try:
-        # Retrieve from storage
-        if application_id not in applications_store:
-            logger.warning(f"Application not found: {application_id}")
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Application {application_id} not found",
-            )
+        application = db.query(LoanApplication).filter(
+            LoanApplication.application_id == application_id
+        ).first()
 
-        app_data = applications_store[application_id]
+        if not application:
+            raise HTTPException(status_code=404, detail="Application not found")
 
-        return ApplicationStatusResponse(
-            application_id=app_data["id"],
-            status=app_data["status"],
-            created_at=app_data["created_at"],
-            updated_at=app_data["updated_at"],
-            decision=app_data.get("decision"),
+        return {
+            "application_id": application.application_id,
+            "applicant_id": application.applicant_id,
+            "status": application.status,
+            "decision": application.decision,
+            "risk_score": application.risk_score,
+            "confidence_level": application.confidence_level,
+            "created_at": application.created_at.isoformat(),
+            "updated_at": application.updated_at.isoformat(),
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching application status: {e}", exc_info=True)
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/applications/{application_id}/decision", response_model=LoanDecisionResponse)
+async def get_application_decision(
+    application_id: str, db: Session = Depends(get_db)
+):
+    """
+    Get loan decision for an application.
+
+    Args:
+        application_id: Application ID
+        db: Database session
+
+    Returns:
+        Detailed loan decision with reasoning
+    """
+    logger.info(f"Fetching decision for application: {application_id}")
+
+    try:
+        decision = db.query(DecisionRecord).filter(
+            DecisionRecord.application_id == application_id
+        ).first()
+
+        if not decision:
+            raise HTTPException(status_code=404, detail="Decision not found")
+
+        key_factors = decision.key_factors.split(",") if decision.key_factors else []
+
+        return LoanDecisionResponse(
+            application_id=decision.application_id,
+            final_decision=decision.final_decision,
+            risk_score=decision.risk_score,
+            confidence_level=decision.confidence_level,
+            key_factors=key_factors,
+            reasoning=decision.reasoning,
+            case_id=decision.case_id,
+            created_at=decision.created_at.isoformat(),
         )
 
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error retrieving application status: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to retrieve application status",
-        )
+        logger.error(f"Error fetching decision: {e}", exc_info=True)
+        raise HTTPException(status_code=400, detail=str(e))
 
 
-@router.get(
-    "/{application_id}/decision",
-    summary="Get Loan Decision",
-    description="Retrieve the final loan decision (available when status is completed)",
-)
-async def get_decision(application_id: str):
+@router.get("/applications/{application_id}/audit-trail")
+async def get_audit_trail(
+    application_id: str, db: Session = Depends(get_db)
+):
     """
-    Get the final loan decision for an application.
+    Get audit trail for an application.
 
-    **Parameters:**
-    - application_id: The application ID to look up
+    Args:
+        application_id: Application ID
+        db: Database session
 
-    **Returns:**
-    - decision: Final decision (APPROVED/REJECTED/MANUAL_REVIEW)
-    - risk_score: Risk score (0-100)
-    - confidence_level: Confidence level (0-100%)
-    - key_factors: Key factors influencing decision
-    - explanation: Detailed explanation
-    - case_id: Unique case identifier
-    - timestamp: Decision timestamp
+    Returns:
+        List of audit log entries
     """
+    logger.info(f"Fetching audit trail for application: {application_id}")
+
     try:
-        # Retrieve from storage
-        if application_id not in applications_store:
-            logger.warning(f"Application not found: {application_id}")
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Application {application_id} not found",
-            )
+        audit_logs = db.query(AuditLog).filter(
+            AuditLog.application_id == application_id
+        ).order_by(AuditLog.created_at).all()
 
-        app_data = applications_store[application_id]
+        return {
+            "application_id": application_id,
+            "audit_entries": [
+                {
+                    "timestamp": log.created_at.isoformat(),
+                    "action": log.action,
+                    "details": log.details,
+                }
+                for log in audit_logs
+            ],
+        }
 
-        # Check if decision is available
-        if not app_data.get("decision_result"):
-            raise HTTPException(
-                status_code=status.HTTP_202_ACCEPTED,
-                detail="Decision not yet available. Application is still processing.",
-            )
-
-        return app_data["decision_result"]
-
-    except HTTPException:
-        raise
     except Exception as e:
-        logger.error(f"Error retrieving decision: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to retrieve decision",
-        )
+        logger.error(f"Error fetching audit trail: {e}", exc_info=True)
+        raise HTTPException(status_code=400, detail=str(e))
 
 
-@router.get(
-    "",
-    summary="List Applications",
-    description="Retrieve a list of all applications (for this phase, development only)",
-)
-async def list_applications(skip: int = 0, limit: int = 10):
-    """
-    List all applications (development endpoint).
-
-    **Parameters:**
-    - skip: Number of applications to skip
-    - limit: Maximum number of applications to return
-
-    **Returns:**
-    List of application summaries
-    """
-    applications_list = list(applications_store.values())
-    return {
-        "total": len(applications_list),
-        "applications": applications_list[skip : skip + limit],
-    }
+@router.get("/health")
+async def health_check():
+    """Health check endpoint."""
+    return {"status": "healthy", "timestamp": datetime.utcnow().isoformat()}

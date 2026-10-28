@@ -20,6 +20,7 @@ class LoanApplicationRequest(BaseModel):
     loan_tenure_months: int = Field(..., gt=0, le=360, description="Loan tenure in months")
     existing_liabilities: float = Field(..., ge=0, description="Total existing liabilities")
     location: str = Field(..., min_length=1, description="Applicant location")
+    applicant_email: Optional[str] = Field(default=None, description="Applicant email address")
     application_timestamp: Optional[datetime] = Field(
         default_factory=datetime.utcnow, description="Application submission time"
     )

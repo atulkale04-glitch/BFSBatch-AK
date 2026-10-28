@@ -1,0 +1,39 @@
+# Web Framework
+fastapi
+uvicorn[standard]
+pydantic
+pydantic-settings
+
+# Orchestration & LLM
+langgraph
+langchain
+langchain-anthropic
+anthropic
+
+# Database
+sqlalchemy
+psycopg2-binary
+alembic
+
+# UI
+streamlit
+streamlit-chat
+
+# Utilities
+python-dotenv
+httpx
+requests
+
+# Logging & Monitoring
+python-json-logger
+
+# Testing
+pytest
+pytest-asyncio
+pytest-cov
+pytest-httpx
+
+# Development
+black
+flake8
+mypy

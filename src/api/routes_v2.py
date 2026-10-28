@@ -1,5 +1,6 @@
 """FastAPI routes for loan approval application with orchestrator integration."""
 
+import asyncio
 import uuid
 from datetime import datetime
 from typing import Dict, List, Optional
@@ -23,27 +24,38 @@ router = APIRouter(prefix="/api/v1", tags=["applications"])
 orchestrator = ApplicationOrchestrator()
 
 
-@router.post("/applications", response_model=ApplicationSubmissionResponse)
+class InstantDecisionResponse(ApplicationSubmissionResponse):
+    """Response with instant decision data."""
+    decision: Optional[str] = None
+    risk_score: Optional[float] = None
+    confidence_level: Optional[float] = None
+    case_id: Optional[str] = None
+    key_factors: List[str] = []
+    reasoning: Optional[str] = None
+
+
+@router.post("/applications", response_model=InstantDecisionResponse)
 async def submit_application(
     request: LoanApplicationRequest, db: Session = Depends(get_db_session)
 ):
     """
-    Submit a new loan application for processing.
+    Submit a new loan application for INSTANT processing.
 
     Args:
         request: Loan application data
         db: Database session
 
     Returns:
-        ApplicationSubmissionResponse with application_id and status
+        InstantDecisionResponse with immediate decision
     """
     logger.info(f"Received application submission from {request.applicant_id}")
 
     try:
         application_data = request.dict()
+        application_id = f"LOAN-{datetime.utcnow().strftime('%Y%m%d')}-{str(uuid.uuid4())[:8].upper()}"
 
         application_record = LoanApplication(
-            application_id=str(uuid.uuid4()),
+            application_id=application_id,
             applicant_id=request.applicant_id,
             age=request.age,
             income=request.income,
@@ -54,11 +66,13 @@ async def submit_application(
             existing_liabilities=request.existing_liabilities,
             location=request.location,
             applicant_email=request.applicant_email,
-            status="submitted",
+            status="processing",
         )
         db.add(application_record)
         db.commit()
         db.refresh(application_record)
+
+        logger.info(f"Processing application {application_id} synchronously...")
 
         result = await orchestrator.process_application(application_data)
 
@@ -82,10 +96,24 @@ async def submit_application(
                 db.add(decision_record)
                 db.commit()
 
-        return ApplicationSubmissionResponse(
+                logger.info(f"Decision completed for {application_id}: {result.get('decision')}")
+
+                return InstantDecisionResponse(
+                    application_id=application_record.application_id,
+                    status=application_record.status,
+                    message=f"✅ Loan Decision: {result.get('decision')}",
+                    decision=result.get("decision"),
+                    risk_score=result.get("risk_score"),
+                    confidence_level=result.get("confidence_level"),
+                    case_id=result.get("case_id"),
+                    key_factors=result.get("key_factors", []),
+                    reasoning=result.get("reasoning"),
+                )
+
+        return InstantDecisionResponse(
             application_id=application_record.application_id,
             status=application_record.status,
-            message=f"Application {application_record.application_id} submitted successfully",
+            message=f"Application {application_record.application_id} submitted",
         )
 
     except Exception as e:

@@ -158,20 +158,65 @@ def submit_loan_application(**kwargs) -> None:
 
             if response.status_code in [200, 201]:
                 data = response.json()
-                st.success("✅ Application submitted successfully!")
-
-                col1, col2, col3 = st.columns(3)
-                with col1:
-                    st.metric("Application ID", data.get("application_id", "N/A"))
-                with col2:
-                    st.metric("Status", data.get("status", "N/A").upper())
-                with col3:
-                    st.metric("Timestamp", datetime.now().strftime("%Y-%m-%d %H:%M"))
-
-                # Display full application ID with copy button
                 app_id = data.get("application_id", "N/A")
-                st.code(app_id, language="text")
-                st.info(f"📋 Save this Application ID to check status later: {app_id}\n\n{data.get('message', 'Application processing...')}")
+
+                # Show instant decision if available
+                if data.get("decision"):
+                    st.success("⚡ INSTANT DECISION GENERATED!")
+
+                    # Display full application ID
+                    st.code(app_id, language="text")
+
+                    # Decision metrics
+                    decision = data.get("decision", "Unknown")
+                    risk_score = data.get("risk_score", 0)
+                    confidence = data.get("confidence_level", 0)
+
+                    decision_emoji = "✅" if decision == "APPROVED" else "❌" if decision == "REJECTED" else "❓"
+
+                    col1, col2, col3, col4 = st.columns(4)
+                    with col1:
+                        st.metric("Decision", f"{decision_emoji} {decision}")
+                    with col2:
+                        st.metric("Risk Score", f"{risk_score}/100")
+                    with col3:
+                        st.metric("Confidence", f"{confidence}%")
+                    with col4:
+                        st.metric("Case ID", data.get("case_id", "N/A")[:12] + "...")
+
+                    st.markdown("---")
+
+                    # Key factors
+                    key_factors = data.get("key_factors", [])
+                    if key_factors:
+                        st.subheader("📊 Key Decision Factors")
+                        for i, factor in enumerate(key_factors, 1):
+                            st.write(f"{i}. {factor}")
+
+                    # Reasoning
+                    reasoning = data.get("reasoning")
+                    if reasoning:
+                        st.subheader("💭 Decision Reasoning")
+                        st.write(reasoning)
+
+                    st.markdown("---")
+                    st.info(f"📋 Application ID: {app_id}")
+                    st.balloons()
+                else:
+                    # Fallback for applications without instant decision
+                    st.success("✅ Application submitted successfully!")
+
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        st.metric("Application ID", app_id)
+                    with col2:
+                        st.metric("Status", data.get("status", "N/A").upper())
+                    with col3:
+                        st.metric("Timestamp", datetime.now().strftime("%Y-%m-%d %H:%M"))
+
+                    # Display full application ID with copy button
+                    st.code(app_id, language="text")
+                    st.info(f"📋 Save this Application ID to check status later: {app_id}\n\n{data.get('message', 'Application processing...')}")
 
                 if "application_id" in data:
                     st.session_state.last_application_id = data["application_id"]

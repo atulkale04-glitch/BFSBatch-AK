@@ -156,19 +156,22 @@ def submit_loan_application(**kwargs) -> None:
                 timeout=300
             )
 
-            if response.status_code == 200:
+            if response.status_code in [200, 201]:
                 data = response.json()
                 st.success("✅ Application submitted successfully!")
 
                 col1, col2, col3 = st.columns(3)
                 with col1:
-                    st.metric("Application ID", data.get("application_id", "N/A")[:12] + "...")
+                    st.metric("Application ID", data.get("application_id", "N/A"))
                 with col2:
                     st.metric("Status", data.get("status", "N/A").upper())
                 with col3:
                     st.metric("Timestamp", datetime.now().strftime("%Y-%m-%d %H:%M"))
 
-                st.info(data.get("message", "Application processing..."))
+                # Display full application ID with copy button
+                app_id = data.get("application_id", "N/A")
+                st.code(app_id, language="text")
+                st.info(f"📋 Save this Application ID to check status later: {app_id}\n\n{data.get('message', 'Application processing...')}")
 
                 if "application_id" in data:
                     st.session_state.last_application_id = data["application_id"]
@@ -375,6 +378,85 @@ def dashboard_page():
 
     with col4:
         st.metric("Processing", "0", "0%")
+
+    st.markdown("---")
+
+    st.subheader("🔍 Quick Status Check")
+
+    with st.form("quick_status_form"):
+        app_id = st.text_input(
+            "Enter Application ID",
+            placeholder="LOAN-20261028-XXXXXXXX",
+            help="Paste the Application ID to check status"
+        )
+
+        check_button = st.form_submit_button("Check Status", use_container_width=True)
+
+    if check_button and app_id:
+        with st.spinner("Fetching status..."):
+            try:
+                response = requests.get(
+                    f"{API_BASE_URL}/applications/{app_id}",
+                    timeout=10
+                )
+
+                if response.status_code == 200:
+                    data = response.json()
+
+                    # Status color coding
+                    status = data.get("status", "Unknown").upper()
+                    decision = data.get("decision", "Pending")
+                    risk_score = data.get("risk_score", "N/A")
+                    confidence = data.get("confidence_level", "N/A")
+
+                    st.markdown("---")
+                    st.subheader(f"📋 Application: {app_id}")
+
+                    col1, col2, col3, col4 = st.columns(4)
+
+                    with col1:
+                        status_emoji = "🟢" if status == "COMPLETED" else "🟡" if status == "PROCESSING" else "🔴"
+                        st.metric("Status", f"{status_emoji} {status}")
+
+                    with col2:
+                        decision_emoji = "✅" if decision == "APPROVED" else "❌" if decision == "REJECTED" else "❓"
+                        st.metric("Decision", f"{decision_emoji} {decision}" if decision != "None" else "⏳ Pending")
+
+                    with col3:
+                        st.metric("Risk Score", f"{risk_score}/100" if risk_score != "N/A" else "N/A")
+
+                    with col4:
+                        st.metric("Confidence", f"{confidence}%" if confidence != "N/A" else "N/A")
+
+                    st.markdown("---")
+                    st.json(data)
+
+                    # Show decision details if available
+                    if status == "COMPLETED" and decision != "None":
+                        st.subheader("📄 Decision Details")
+                        decision_response = requests.get(
+                            f"{API_BASE_URL}/applications/{app_id}/decision",
+                            timeout=10
+                        )
+                        if decision_response.status_code == 200:
+                            decision_data = decision_response.json()
+
+                            st.write("**Key Factors:**")
+                            factors = decision_data.get("key_factors", [])
+                            if factors:
+                                for i, factor in enumerate(factors, 1):
+                                    st.write(f"{i}. {factor}")
+
+                            st.write("**Reasoning:**")
+                            st.write(decision_data.get("reasoning", "No reasoning provided"))
+
+                elif response.status_code == 404:
+                    st.warning("⚠️ Application not found. Please check the Application ID.")
+                else:
+                    st.error(f"Error: {response.status_code}")
+
+            except Exception as e:
+                st.error(f"Error fetching status: {str(e)}")
 
     st.markdown("---")
 

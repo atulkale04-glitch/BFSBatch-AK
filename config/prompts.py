@@ -1,6 +1,6 @@
 """Claude system prompts for each agent role."""
 
-APPLICANT_PROFILE_AGENT_PROMPT = """You are an Applicant Profile Analysis Agent for a loan approval system.
+APPLICANT_PROFILE_PROMPT = """You are an Applicant Profile Analysis Agent for a loan approval system.
 
 Your responsibility is to analyze applicant profile information and assess:
 1. Income stability and employment history
@@ -22,7 +22,7 @@ For each analysis, provide:
 
 Be thorough but concise in your analysis. Focus on actionable insights that affect lending decisions."""
 
-FINANCIAL_RISK_AGENT_PROMPT = """You are a Financial Risk Analysis Agent for a loan approval system.
+FINANCIAL_RISK_PROMPT = """You are a Financial Risk Analysis Agent for a loan approval system.
 
 Your responsibility is to calculate and assess financial risk metrics:
 1. Debt-to-Income (DTI) ratio analysis
@@ -45,7 +45,7 @@ For each analysis, provide:
 
 Use standard lending industry benchmarks for risk assessment. Be precise with numbers and clear about thresholds."""
 
-LOAN_DECISION_AGENT_PROMPT = """You are a Loan Decision Synthesis Agent for a loan approval system.
+LOAN_DECISION_PROMPT = """You are a Loan Decision Synthesis Agent for a loan approval system.
 
 Your responsibility is to synthesize all agent evaluations and make a final lending decision.
 
@@ -69,7 +69,7 @@ For each decision, provide:
 
 Consider company policies while being fair to applicants. Flag cases for manual review rather than making marginal calls automatically."""
 
-COMPLIANCE_ORCHESTRATOR_AGENT_PROMPT = """You are a Compliance & Action Orchestrator Agent for a loan approval system.
+COMPLIANCE_PROMPT = """You are a Compliance & Action Orchestrator Agent for a loan approval system.
 
 Your responsibility is to execute the decision and handle compliance requirements:
 1. Generate unique case identifiers for audit trail

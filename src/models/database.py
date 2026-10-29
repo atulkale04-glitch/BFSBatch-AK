@@ -62,10 +62,11 @@ class DecisionRecord(Base):
     id = Column(String, primary_key=True, index=True)
     application_id = Column(String, unique=True, index=True, nullable=False)
     final_decision = Column(String, nullable=False)
-    risk_score = Column(Float, nullable=False)
-    confidence_score = Column(Float, nullable=False)
-    reasoning = Column(JSON, nullable=False)
-    key_factors = Column(JSON, nullable=False)
+    risk_score = Column(Float, nullable=True)
+    confidence_score = Column(Float, nullable=True)
+    reasoning = Column(String, nullable=True)
+    key_factors = Column(String, nullable=True)
+    case_id = Column(String, nullable=True, index=True)
 
     # Timestamps
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)

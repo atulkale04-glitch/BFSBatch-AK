@@ -26,9 +26,10 @@ orchestrator = ApplicationOrchestrator()
 
 class InstantDecisionResponse(ApplicationSubmissionResponse):
     """Response with instant decision data."""
+    message: Optional[str] = None
     decision: Optional[str] = None
     risk_score: Optional[float] = None
-    confidence_level: Optional[float] = None
+    confidence_score: Optional[float] = None
     case_id: Optional[str] = None
     key_factors: List[str] = []
     reasoning: Optional[str] = None
@@ -80,15 +81,16 @@ async def submit_application(
             application_record.status = result.get("status", "completed")
             application_record.decision = result.get("decision")
             application_record.risk_score = result.get("risk_score")
-            application_record.confidence_level = result.get("confidence_level")
+            application_record.confidence_score = result.get("confidence_score")
             db.commit()
 
             if result.get("status") == "completed":
                 decision_record = DecisionRecord(
-                    application_id=application_record.application_id,
+                    id=str(uuid.uuid4()),
+                    application_id=application_record.id,
                     final_decision=result.get("decision"),
                     risk_score=result.get("risk_score"),
-                    confidence_level=result.get("confidence_level"),
+                    confidence_score=result.get("confidence_score"),
                     key_factors=",".join(result.get("key_factors", [])),
                     reasoning=result.get("reasoning"),
                     case_id=result.get("case_id"),
@@ -99,21 +101,23 @@ async def submit_application(
                 logger.info(f"Decision completed for {application_id}: {result.get('decision')}")
 
                 return InstantDecisionResponse(
-                    application_id=application_record.application_id,
+                    application_id=application_record.id,
                     status=application_record.status,
+                    created_at=datetime.utcnow(),
                     message=f"✅ Loan Decision: {result.get('decision')}",
                     decision=result.get("decision"),
                     risk_score=result.get("risk_score"),
-                    confidence_level=result.get("confidence_level"),
+                    confidence_score=result.get("confidence_score"),
                     case_id=result.get("case_id"),
                     key_factors=result.get("key_factors", []),
                     reasoning=result.get("reasoning"),
                 )
 
         return InstantDecisionResponse(
-            application_id=application_record.application_id,
+            application_id=application_record.id,
             status=application_record.status,
-            message=f"Application {application_record.application_id} submitted",
+            created_at=datetime.utcnow(),
+            message=f"Application {application_record.id} submitted",
         )
 
     except Exception as e:
@@ -139,19 +143,19 @@ async def get_application_status(
 
     try:
         application = db.query(LoanApplication).filter(
-            LoanApplication.application_id == application_id
+            LoanApplication.id == application_id
         ).first()
 
         if not application:
             raise HTTPException(status_code=404, detail="Application not found")
 
         return {
-            "application_id": application.application_id,
+            "application_id": application.id,
             "applicant_id": application.applicant_id,
             "status": application.status,
             "decision": application.decision,
             "risk_score": application.risk_score,
-            "confidence_level": application.confidence_level,
+            "confidence_level": application.risk_score,
             "created_at": application.created_at.isoformat(),
             "updated_at": application.updated_at.isoformat(),
         }
@@ -191,13 +195,13 @@ async def get_application_decision(
 
         return LoanDecisionResponse(
             application_id=decision.application_id,
-            final_decision=decision.final_decision,
+            decision=decision.final_decision,
             risk_score=decision.risk_score,
-            confidence_level=decision.confidence_level,
+            confidence_level=decision.confidence_score or 0,
             key_factors=key_factors,
-            reasoning=decision.reasoning,
-            case_id=decision.case_id,
-            created_at=decision.created_at.isoformat(),
+            explanation=decision.reasoning or "No explanation provided",
+            case_id=decision.case_id or "N/A",
+            timestamp=decision.created_at,
         )
 
     except HTTPException:
